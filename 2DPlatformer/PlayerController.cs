@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using PathCreation;
 
 public class PlayerController : MonoBehaviour
 {
@@ -21,6 +22,28 @@ public class PlayerController : MonoBehaviour
     private float jumpTime;
     private float jumpTimeCounter;
     private bool isJumping = false;
+
+    // 상호작용 거리를 결정하는 변수입니다.
+    [SerializeField]
+    private float checkDistance;
+    /* warp 관련 변수들
+     * 
+     * warp 하는 위치, 현재 위치 등을 저장하는 변수들입니다.
+     * */
+    [SerializeField]
+    private PathCreator pathCreator;
+
+    [SerializeField]
+    public EndOfPathInstruction end;
+
+    private bool isWarping = false;
+    private bool warpDirection;
+    [SerializeField]
+    private float speed;
+    
+    private float warpDistance;
+
+
 
     // 들어온 입력을 저장하기 위한 변수. 누르고 있는 시간이나 방향 등을 저장하기 위함.
     private float moveInput;
@@ -54,11 +77,14 @@ public class PlayerController : MonoBehaviour
      */
     private void FixedUpdate()
     {
+
+        
         // GetAxisRaw 는 GetAxis 와 유사하지만, 키를 누른 감도와 상관없이 0 1 -1 만을 반환합니다.
         moveInput = Input.GetAxisRaw("Horizontal");
-
+        Debug.Log("move input : " + moveInput);
         // Unity 에서는 vector 에 특정 값을 더하는 기능이 없습니다. 매번 기존 vector 값을 이용해 새로운 벡터를 지정해줍시다.
         rigidBodyComponent.velocity = new Vector2(moveInput * verticalSpeed, rigidBodyComponent.velocity.y);
+        Debug.Log("velocity : " + rigidBodyComponent.velocity);
     }
 
     /*
@@ -75,14 +101,95 @@ public class PlayerController : MonoBehaviour
             transform.eulerAngles = new Vector3(0, 0, 0);
         }
 
+        #region WARP
+
+        if (isWarping)
+        {
+            if (warpDirection)
+            {
+                warpDistance += speed * Time.deltaTime;
+                transform.position = pathCreator.path.GetPointAtDistance(warpDistance, end);
+                if (pathCreator.path.length < warpDistance)
+                {
+                    isWarping = false;
+                    rigidBodyComponent.velocity = new Vector2(0.0f, 0.0f);
+                    transform.position = pathCreator.path.GetPoint(pathCreator.path.localPoints.Length-1);
+                    Debug.Log("warp ended!");
+                }
+            }
+            else
+            {
+                warpDistance -= speed * Time.deltaTime;
+                transform.position = pathCreator.path.GetPointAtDistance(warpDistance, end);
+                if (0 > warpDistance)
+                {
+                    isWarping = false;
+                    rigidBodyComponent.velocity = new Vector2(0.0f, 0.0f);
+                    transform.position = pathCreator.path.GetPoint(0);
+                    Debug.Log("warp ended!");
+                }
+            }
+            
+        }
+        else if (Input.GetKey(KeyCode.E))
+        {
+            GameObject[] pathCreators;
+            pathCreators = GameObject.FindGameObjectsWithTag("ElectricPath");
+
+            Debug.Log("count " + pathCreators.Length);
+
+            Vector3 currentPosition = transform.position;
+            foreach(GameObject electricPath in pathCreators)
+            {
+
+                PathCreator currentPath = electricPath.GetComponent<PathCreator>();
+
+                Debug.Log("current position : " + currentPosition);
+                
+                //Vector3 startPosition = currentPath.path.GetPoint(0) + currentPath.transform.position;
+                Vector3 diff = currentPath.path.GetPoint(0) - currentPosition;
+                float currentDistance = diff.sqrMagnitude;
+
+                Debug.Log("start point " + currentPath.path.GetPoint(0) + " distance ->" + currentDistance);
+                
+                if (currentDistance < checkDistance)
+                {
+                    pathCreator = currentPath;
+                    warpDistance = 0;
+                    warpDirection = true;
+                    isWarping = true;
+                    Debug.Log("warp started!");
+                    break;
+                }
+
+                //Vector3 endPosition = currentPath.path.GetPoint(1) + currentPath.transform.position;
+                diff = currentPath.path.GetPoint(currentPath.path.localPoints.Length - 1) - currentPosition;
+                currentDistance = diff.sqrMagnitude;
+                Debug.Log("length : " + currentPath.path.length);
+                Debug.Log("end point " + currentPath.path.GetPoint(currentPath.path.localPoints.Length-1) + " distance ->" + currentDistance);
+
+                if (currentDistance < checkDistance)
+                {
+                    pathCreator = currentPath;
+                    warpDistance = currentPath.path.length;
+                    warpDirection = false;
+                    isWarping = true;
+                    Debug.Log("warp started reverse!");
+                    break;
+                }
+            }
+        }
+
+        #endregion
 
         #region JUMP
 
+        //Debug.Log("jump checking...");
         // 발이 땅에 닿아 있는 것을 판별하는 정도입니다.
         isOnGround = Physics2D.OverlapCircle(feetPos.position, checkRadius, groundType);
 
         // 지정해둔 땅에 있으면서 스페이스바를 누르고 있고, 발이 충분히 땅에 닿아 있으면 점프를 합니다.
-        if (isOnGround && Input.GetKeyDown(KeyCode.Space))
+        if (isOnGround && Input.GetKeyDown(KeyCode.Space) && !isWarping)
         {
             isJumping = true;
             jumpTimeCounter = jumpTime;
@@ -90,7 +197,7 @@ public class PlayerController : MonoBehaviour
         }
 
         // 스페이스바를 누르고 있으면 더 높이 뛰도록 만들어줍니다. 만약 뛰지 못했다면 곱한 값도 0이 되니 상관이 없을 것입니다.
-        if (Input.GetKey(KeyCode.Space) && isJumping)
+        if (Input.GetKey(KeyCode.Space) && isJumping && !isWarping)
         {
             if(jumpTimeCounter > 0)
             {
